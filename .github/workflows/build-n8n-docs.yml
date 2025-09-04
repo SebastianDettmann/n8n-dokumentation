@@ -12,14 +12,15 @@ jobs:
           repository: n8n-io/n8n-docs
           path: n8n-docs
 
-      - name: Install dependencies (pandoc, LaTeX, SVG, Python, fonts)
+      - name: Install dependencies (pandoc, LaTeX, SVG, Python, fonts, wkhtmltopdf)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             pandoc fd-find python3-pip \
             texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended \
             texlive-xetex librsvg2-bin \
-            fonts-dejavu fonts-liberation fonts-noto fonts-noto-cjk fonts-noto-color-emoji
+            fonts-dejavu fonts-liberation fonts-noto fonts-noto-cjk fonts-noto-color-emoji \
+            wkhtmltopdf
           pip3 install pyyaml
 
       # (Optional, falls du meinen toleranten YAML-Loader nutzt – ansonsten weglassen)
@@ -93,14 +94,14 @@ jobs:
             --resource-path=.:docs:docs/_images:docs/images:docs/assets \
             -o n8n-docs.docx
 
-      - name: Build PDF (images fixed via lua filter, xelatex)
+      - name: Build PDF (HTML engine via wkhtmltopdf)
         working-directory: n8n-docs
         run: |
           xargs -a filelist.txt pandoc -s \
             --from=gfm+yaml_metadata_block \
             --lua-filter=fix-img-paths.lua \
             --resource-path=.:docs:docs/_images:docs/images:docs/assets \
-            --pdf-engine=xelatex \
+            --pdf-engine=wkhtmltopdf \
             -o n8n-docs.pdf
 
       - name: Upload artifacts
