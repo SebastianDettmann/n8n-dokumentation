@@ -20,67 +20,67 @@ jobs:
           pip3 install pyyaml
 
       - name: Build ordered file list from mkdocs.yml (tolerant loader)
-          working-directory: n8n-docs
-          run: |
-             python3 - <<'PY'
-            import os, yaml, sys
-            # Toleranter Loader: ignoriert unbekannte Tags wie !!python/name:...
-            class IgnoreTagsLoader(yaml.SafeLoader):
-                pass
-            def _ignore_unknown(loader, tag_suffix, node):
-                if isinstance(node, yaml.ScalarNode):
-                    return loader.construct_scalar(node)
-                if isinstance(node, yaml.SequenceNode):
-                    return loader.construct_sequence(node)
-                if isinstance(node, yaml.MappingNode):
-                    return loader.construct_mapping(node)
-                return None
-            yaml.add_multi_constructor('tag:yaml.org,2002:python/', _ignore_unknown, Loader=IgnoreTagsLoader)
-            # Fallback: falls sonstige unbekannte Tags auftauchen
-            yaml.add_constructor(None, lambda l, n: l.construct_scalar(n) if isinstance(n, yaml.ScalarNode) else None, Loader=IgnoreTagsLoader)
+        working-directory: n8n-docs
+        run: |
+          python3 - <<'PY'
+          import os, yaml, sys
+          # Toleranter Loader: ignoriert unbekannte Tags wie !!python/name:...
+          class IgnoreTagsLoader(yaml.SafeLoader):
+              pass
+          def _ignore_unknown(loader, tag_suffix, node):
+              if isinstance(node, yaml.ScalarNode):
+                  return loader.construct_scalar(node)
+              if isinstance(node, yaml.SequenceNode):
+                  return loader.construct_sequence(node)
+              if isinstance(node, yaml.MappingNode):
+                  return loader.construct_mapping(node)
+              return None
+          yaml.add_multi_constructor('tag:yaml.org,2002:python/', _ignore_unknown, Loader=IgnoreTagsLoader)
+          # Fallback: falls sonstige unbekannte Tags auftauchen
+          yaml.add_constructor(None, lambda l, n: l.construct_scalar(n) if isinstance(n, yaml.ScalarNode) else None, Loader=IgnoreTagsLoader)
 
-            with open('mkdocs.yml','r',encoding='utf-8') as f:
-                cfg = yaml.load(f, Loader=IgnoreTagsLoader) or {}
+          with open('mkdocs.yml','r',encoding='utf-8') as f:
+              cfg = yaml.load(f, Loader=IgnoreTagsLoader) or {}
   
-            nav = cfg.get('nav') or cfg.get('navigation') or []
-            paths = []
-            def walk(items):
-                for it in (items or []):
-                    if isinstance(it, dict):
-                        for _, v in it.items():
-                            if isinstance(v, list):
-                                walk(v)
-                            else:
-                                paths.append(v)
-                    elif isinstance(it, str):
-                        paths.append(it)
-            walk(nav)
+          nav = cfg.get('nav') or cfg.get('navigation') or []
+          paths = []
+          def walk(items):
+              for it in (items or []):
+                  if isinstance(it, dict):
+                      for _, v in it.items():
+                          if isinstance(v, list):
+                              walk(v)
+                          else:
+                              paths.append(v)
+                  elif isinstance(it, str):
+                      paths.append(it)
+          walk(nav)
   
-            ordered = []
-            def add(p):
-                if not p: return
-                p = p if p.startswith('docs/') else os.path.join('docs', p)
-                if p.endswith('.md') and os.path.exists(p) and p not in ordered:
-                    ordered.append(p)
+          ordered = []
+          def add(p):
+              if not p: return
+              p = p if p.startswith('docs/') else os.path.join('docs', p)
+              if p.endswith('.md') and os.path.exists(p) and p not in ordered:
+                  ordered.append(p)
   
-            for p in paths: add(p)
+          for p in paths: add(p)
   
-            # Alle übrigen .md-Dateien (falls nicht in nav) hinten anhängen
-            for root, _, files in os.walk('docs'):
-                for fn in sorted(files):
-                    if fn.lower().endswith('.md'):
-                        fp = os.path.join(root, fn)
-                        if fp not in ordered:
-                            ordered.append(fp)
+          # Alle übrigen .md-Dateien (falls nicht in nav) hinten anhängen
+          for root, _, files in os.walk('docs'):
+              for fn in sorted(files):
+                  if fn.lower().endswith('.md'):
+                      fp = os.path.join(root, fn)
+                      if fp not in ordered:
+                          ordered.append(fp)
   
-            # Wenn nichts gefunden, Fehler ausgeben
-            if not ordered:
-                print("WARN: Keine Markdown-Dateien gefunden – prüfe Struktur unter docs/", file=sys.stderr)
+          # Wenn nichts gefunden, Fehler ausgeben
+          if not ordered:
+              print("WARN: Keine Markdown-Dateien gefunden – prüfe Struktur unter docs/", file=sys.stderr)
   
-            with open('filelist.txt','w',encoding='utf-8') as out:
-                out.write('\n'.join(ordered))
-            print(f"Collected {len(ordered)} Markdown files.")
-            PY
+          with open('filelist.txt','w',encoding='utf-8') as out:
+              out.write('\n'.join(ordered))
+          print(f"Collected {len(ordered)} Markdown files.")
+          PY
 
       - name: Build DOCX (preserves images via --resource-path)
         working-directory: n8n-docs
