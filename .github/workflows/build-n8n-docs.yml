@@ -82,16 +82,44 @@ jobs:
           print(f"Collected {len(ordered)} Markdown files.")
           PY
 
-      - name: Build DOCX (preserves images via --resource-path)
+      - name: Write pandoc Lua filter to fix image paths
         working-directory: n8n-docs
         run: |
-          xargs -a filelist.txt pandoc -s -o n8n-docs.docx --resource-path=docs
+          cat > fix-img-paths.lua <<'LUA'
+          function Image(el)
+            local src = el.src
+            -- 1) führenden Slash entfernen (z.B. "/_images/...") -> "_images/..."
+            if src:match("^/") then
+              src = src:gsub("^/", "")
+            end
+            -- 2) falls Pfad mit _images|images|assets beginnt, aber nicht mit docs/, prefexe "docs/"
+            if (src:match("^_images/") or src:match("^images/") or src:match("^assets/")) and not src:match("^docs/") then
+              src = "docs/" .. src
+            end
+            el.src = src
+            return el
+          end
+          LUA
 
-      - name: Build PDF
+      - name: Build DOCX (images fixed via lua filter)
         working-directory: n8n-docs
         run: |
-          xargs -a filelist.txt pandoc -s -o n8n-docs.pdf --resource-path=docs
+          xargs -a filelist.txt pandoc -s \
+            --from=gfm+yaml_metadata_block \
+            --lua-filter=fix-img-paths.lua \
+            --resource-path=.:docs:docs/_images:docs/images:docs/assets \
+            -o n8n-docs.docx
 
+      - name: Build PDF (images fixed via lua filter)
+        working-directory: n8n-docs
+        run: |
+          xargs -a filelist.txt pandoc -s \
+            --from=gfm+yaml_metadata_block \
+            --lua-filter=fix-img-paths.lua \
+            --resource-path=.:docs:docs/_images:docs/images:docs/assets \
+            --pdf-engine=xelatex \
+            -o n8n-docs.pdf
+    
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
