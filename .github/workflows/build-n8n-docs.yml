@@ -1,0 +1,70 @@
+name: Build n8n docs to DOCX/PDF
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout n8n docs
+        uses: actions/checkout@v4
+        with:
+          repository: n8n-io/n8n-docs
+          path: n8n-docs
+
+      - name: Install dependencies (pandoc, LaTeX, fd, Python)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc fd-find python3-pip \
+            texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended
+          pip3 install pyyaml
+
+      - name: Build ordered file list from mkdocs.yml
+        working-directory: n8n-docs
+        run: |
+          python3 - <<'PY'
+          import yaml, os
+          with open('mkdocs.yml','r',encoding='utf-8') as f:
+              cfg = yaml.safe_load(f)
+          paths = []
+          def walk(nav):
+              for item in nav or []:
+                  if isinstance(item, dict):
+                      for _, v in item.items():
+                          if isinstance(v, list): walk(v)
+                          else: paths.append(v)
+                  elif isinstance(item, str):
+                      paths.append(item)
+          walk(cfg.get('nav', []))
+          ordered = []
+          def add(p):
+              p = p if p.startswith('docs/') else os.path.join('docs', p)
+              if p.endswith('.md') and os.path.exists(p) and p not in ordered:
+                  ordered.append(p)
+          for p in paths: add(p)
+          for root, _, files in os.walk('docs'):
+              for f in files:
+                  if f.endswith('.md'):
+                      fp = os.path.join(root, f)
+                      if fp not in ordered: ordered.append(fp)
+          with open('filelist.txt','w',encoding='utf-8') as out:
+              out.write('\n'.join(ordered))
+          PY
+
+      - name: Build DOCX (preserves images via --resource-path)
+        working-directory: n8n-docs
+        run: |
+          xargs -a filelist.txt pandoc -s -o n8n-docs.docx --resource-path=docs
+
+      - name: Build PDF
+        working-directory: n8n-docs
+        run: |
+          xargs -a filelist.txt pandoc -s -o n8n-docs.pdf --resource-path=docs
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: n8n-docs
+          path: |
+            n8n-docs/n8n-docs.docx
+            n8n-docs/n8n-docs.pdf
