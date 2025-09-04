@@ -1,4 +1,4 @@
-name: Build n8n docs to DOCX/PDF
+name: Build n8n docs to DOCX/PDF/MD
 on:
   workflow_dispatch:
 
@@ -12,18 +12,15 @@ jobs:
           repository: n8n-io/n8n-docs
           path: n8n-docs
 
-      - name: Install dependencies (pandoc, LaTeX, SVG, Python, fonts, wkhtmltopdf)
+      - name: Install dependencies (pandoc, wkhtmltopdf, Python, fonts)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            pandoc fd-find python3-pip \
-            texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended \
-            texlive-xetex librsvg2-bin \
-            fonts-dejavu fonts-liberation fonts-noto fonts-noto-cjk fonts-noto-color-emoji \
-            wkhtmltopdf
+            pandoc fd-find python3-pip wkhtmltopdf \
+            librsvg2-bin \
+            fonts-dejavu fonts-liberation fonts-noto fonts-noto-cjk fonts-noto-color-emoji
           pip3 install pyyaml
 
-      # (Optional, falls du meinen toleranten YAML-Loader nutzt – ansonsten weglassen)
       - name: Build ordered file list from mkdocs.yml (tolerant loader)
         working-directory: n8n-docs
         run: |
@@ -38,10 +35,12 @@ jobs:
               if isinstance(node, yaml.MappingNode):
                   return loader.construct_mapping(node)
           yaml.add_multi_constructor('tag:yaml.org,2002:python/', _ignore_unknown, Loader=IgnoreTagsLoader)
+
           with open('mkdocs.yml','r',encoding='utf-8') as f:
-              cfg = yaml.load(f, Loader=IgnoreTagsLoader) or {}
-          nav = cfg.get('nav') or []
-          paths=[]
+            cfg = yaml.load(f, Loader=IgnoreTagsLoader) or {}
+
+          nav = cfg.get('nav') or cfg.get('navigation') or []
+          paths = []
           def walk(items):
               for it in (items or []):
                   if isinstance(it, dict):
@@ -51,18 +50,22 @@ jobs:
                   elif isinstance(it, str):
                       paths.append(it)
           walk(nav)
-          ordered=[]
+
+          ordered = []
           def add(p):
               if not p: return
               p = p if p.startswith('docs/') else os.path.join('docs', p)
               if p.endswith('.md') and os.path.exists(p) and p not in ordered:
                   ordered.append(p)
+
           for p in paths: add(p)
+
           for root, _, files in os.walk('docs'):
               for fn in sorted(files):
                   if fn.lower().endswith('.md'):
-                      fp=os.path.join(root, fn)
+                      fp = os.path.join(root, fn)
                       if fp not in ordered: ordered.append(fp)
+
           with open('filelist.txt','w',encoding='utf-8') as out:
               out.write('\n'.join(ordered))
           print(f"Collected {len(ordered)} Markdown files.")
@@ -104,6 +107,56 @@ jobs:
             --pdf-engine=wkhtmltopdf \
             -o n8n-docs.pdf
 
+      - name: Build single Markdown (concatenate all pages)
+        working-directory: n8n-docs
+        run: |
+          python3 - <<'PY'
+          import os, re, datetime
+          files = [l.strip() for l in open('filelist.txt','r',encoding='utf-8') if l.strip()]
+          def fix_paths(text):
+              text = re.sub(r'\]\(\/', '](docs/', text)     # markdown links/images
+              text = re.sub(r'src="/', 'src="docs/', text)  # raw html <img src="/...">
+              return text
+          def demote_headings(text):
+              out, in_code = [], False
+              for line in text.splitlines():
+                  if line.strip().startswith("```"):
+                      in_code = not in_code
+                      out.append(line); continue
+                  if not in_code and re.match(r'^\s*#{1,6}\s', line):
+                      m = re.match(r'^(\s*)(#{1,6})(\s+)(.*)', line)
+                      if m:
+                          pre, hashes, space, rest = m.groups()
+                          if len(hashes) < 6:
+                              hashes += '#'
+                          out.append(f"{pre}{hashes}{space}{rest}")
+                          continue
+                  out.append(line)
+              return "\n".join(out)
+          out = []
+          out.append("# n8n Documentation – Single File\n")
+          out.append(f"_Generated: {datetime.date.today().isoformat()}_\n")
+          for fp in files:
+              with open(fp,'r',encoding='utf-8') as f:
+                  txt = f.read()
+              # Titel ermitteln
+              title = None
+              for l in txt.splitlines():
+                  if l.startswith('# '):
+                      title = l[2:].strip()
+                      break
+              if not title:
+                  title = os.path.splitext(os.path.basename(fp))[0]
+              out.append(f"\n\n# {title}\n")
+              out.append(f"<!-- source: {fp} -->\n\n")
+              txt = fix_paths(txt)
+              txt = demote_headings(txt)
+              out.append(txt.strip() + "\n")
+          with open('n8n-docs-all.md','w',encoding='utf-8') as g:
+              g.write("\n".join(out))
+          print("Wrote n8n-docs-all.md with", len(files), "sections.")
+          PY
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -111,3 +164,4 @@ jobs:
           path: |
             n8n-docs/n8n-docs.docx
             n8n-docs/n8n-docs.pdf
+            n8n-docs/n8n-docs-all.md
